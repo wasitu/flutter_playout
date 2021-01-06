@@ -27,9 +27,22 @@ public class RemoteReceiver extends BroadcastReceiver {
 
                         case KeyEvent.KEYCODE_MEDIA_PLAY:
 
-                            AudioServiceBinder.service.startAudio(0);
+                            AudioServiceBinder.service.resumeAudio();
 
                             break;
+                        case KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD: {
+                            int second = (AudioServiceBinder.service.getCurrentAudioPosition() - 10000)/1000;
+                            if (second < 0) second = 0;
+                            AudioServiceBinder.service.seekAudio(second);
+                            break;
+                        }
+                        case KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD: {
+                            int second = (AudioServiceBinder.service.getCurrentAudioPosition() + 10000)/1000;
+                            int duration = AudioServiceBinder.service.getAudioPlayer().getDuration();
+                            if (second > duration) second = second;
+                            AudioServiceBinder.service.seekAudio(second);
+                            break;
+                        }
                     }
                 }
             }

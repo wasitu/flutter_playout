@@ -5,7 +5,8 @@ import 'package:flutter_playout/player_state.dart';
 
 class AudioPlayout extends StatefulWidget {
   // Audio url to play
-  final String url = "https://your_audio_stream.com/stream_test.m3u8";
+  final String url =
+      "https://www.radiantmediaplayer.com/media/big-buck-bunny-360p.mp4";
 
   // Audio track title. this will also be displayed in lock screen controls
   final String title = "MTA International";

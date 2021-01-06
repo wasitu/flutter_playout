@@ -57,6 +57,10 @@ class Audio {
         this._isLiveStream != isLiveStream;
   }
 
+  Future<void> resume() async {
+    return _audioChannel.invokeMethod("resume");
+  }
+
   Future<void> pause() async {
     return _audioChannel.invokeMethod("pause");
   }

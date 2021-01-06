@@ -40,10 +40,11 @@ public class PlayerNotificationUtil  {
                 .setContentText(description.getSubtitle())
                 .setLargeIcon(description.getIconBitmap())
                 .setStyle(new androidx.media.app.NotificationCompat.MediaStyle()
-                        .setMediaSession(mediaSession.getSessionToken()))
+                        .setMediaSession(mediaSession.getSessionToken())
+                        .setShowActionsInCompactView(1)
+                )
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setSmallIcon(smallIcon)
-                .setDeleteIntent(getActionIntent(context, KeyEvent.KEYCODE_MEDIA_STOP));
+                .setSmallIcon(smallIcon);
 
         Intent intent = new Intent(context, activity.getClass());
 

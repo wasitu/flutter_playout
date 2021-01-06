@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.media.MediaPlayer;
+import android.media.session.PlaybackState;
 import android.os.Binder;
 import android.os.Build;
 import android.os.Handler;
@@ -22,6 +23,8 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 
 import java.io.IOException;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import tv.mta.flutter_playout.FlutterAVPlayer;
 import tv.mta.flutter_playout.PlayerNotificationUtil;
@@ -31,7 +34,7 @@ import tv.mta.flutter_playout.R;
 public class AudioServiceBinder
         extends Binder
         implements FlutterAVPlayer, MediaPlayer.OnPreparedListener,
-        MediaPlayer.OnCompletionListener, MediaPlayer.OnErrorListener {
+        MediaPlayer.OnCompletionListener, MediaPlayer.OnErrorListener, MediaPlayer.OnSeekCompleteListener {
 
     private static final String TAG = "AudioServiceBinder";
 
@@ -55,10 +58,9 @@ public class AudioServiceBinder
     final int UPDATE_PLAYER_STATE_TO_COMPLETE = 4;
     final int UPDATE_AUDIO_DURATION = 5;
     final int UPDATE_PLAYER_STATE_TO_ERROR = 6;
+    final int UPDATE_PLAYER_STATE_TO_SEEK_COMPLETE = 7;
     private boolean isPlayerReady = false;
-    private boolean isBound = true;
-
-    private boolean isMediaChanging = false;
+    private Timer updateAudioProgressTimer;
 
     /**
      * Whether the {@link MediaPlayer} broadcasted an error.
@@ -74,6 +76,8 @@ public class AudioServiceBinder
     private MediaPlayer audioPlayer = null;
 
     private int startPositionInMills = 0;
+
+    private int previousPosition = 0;
 
     // This Handler object is a reference to the caller activity's Handler.
     // In the caller activity's handler, it will update the audio play progress.
@@ -94,6 +98,10 @@ public class AudioServiceBinder
 
     String getAudioFileUrl() {
         return audioFileUrl;
+    }
+
+    boolean getIsPlayerReady() {
+        return isPlayerReady;
     }
 
     void setAudioFileUrl(String audioFileUrl) {
@@ -124,18 +132,11 @@ public class AudioServiceBinder
         this.activity = activity;
     }
 
-    boolean isMediaChanging() {
-        return isMediaChanging;
-    }
-
-    void setMediaChanging(boolean mediaChanging) {
-        isMediaChanging = mediaChanging;
-    }
-
     private void setAudioMetadata() {
         MediaMetadataCompat metadata = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, title)
                 .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, subtitle)
+                .putLong(MediaMetadataCompat.METADATA_KEY_DURATION, new Long(audioPlayer.getDuration()))
                 .build();
 
         mMediaSessionCompat.setMetadata(metadata);
@@ -147,7 +148,26 @@ public class AudioServiceBinder
 
         initAudioPlayer();
 
-        if (audioPlayer != null && mMediaSessionCompat != null && mMediaSessionCompat.isActive()) {
+        service = this;
+    }
+
+    void seekAudio(int second) {
+
+        if (isPlayerReady) {
+            previousPosition = audioPlayer.getCurrentPosition();
+            audioPlayer.seekTo(second * 1000);
+            updatePlaybackState(PlayerState.PLAYING);
+        }
+    }
+
+    void resumeAudio() {
+
+        if (audioPlayer != null) {
+
+            if (!audioPlayer.isPlaying()) {
+
+                audioPlayer.start();
+            }
 
             updatePlaybackState(PlayerState.PLAYING);
 
@@ -158,16 +178,6 @@ public class AudioServiceBinder
 
             // Send the message to caller activity's update audio Handler object.
             audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
-        }
-
-        service = this;
-    }
-
-    void seekAudio(int position) {
-
-        if (isPlayerReady) {
-
-            audioPlayer.seekTo(position * 1000);
         }
     }
 
@@ -201,6 +211,10 @@ public class AudioServiceBinder
                 audioPlayer.stop();
             }
 
+            isPlayerReady = false;
+
+            updateAudioProgressTimer.cancel();
+
             audioPlayer.reset();
 
             audioPlayer = null;
@@ -222,9 +236,7 @@ public class AudioServiceBinder
     private void initAudioPlayer() {
 
         try {
-
             if (audioPlayer == null) {
-
                 audioPlayer = new MediaPlayer();
 
                 if (!TextUtils.isEmpty(getAudioFileUrl())) {
@@ -237,14 +249,10 @@ public class AudioServiceBinder
                 audioPlayer.setOnCompletionListener(this);
 
                 audioPlayer.setOnErrorListener(this);
-
+                audioPlayer.setOnSeekCompleteListener(this);
                 audioPlayer.prepareAsync();
             }
 
-            else {
-
-                audioPlayer.start();
-            }
 
         } catch (IOException ex) {
             mReceivedError = true;
@@ -253,9 +261,6 @@ public class AudioServiceBinder
 
     @Override
     public void onDestroy() {
-
-        isBound = false;
-
         try {
 
             cleanPlayerNotification();
@@ -288,20 +293,18 @@ public class AudioServiceBinder
         return ret;
     }
 
+    int getPreviousAudioPosition() {
+        return previousPosition;
+    }
+
     @Override
     public void onPrepared(MediaPlayer mp) {
 
         isPlayerReady = true;
 
-        isBound = true;
-
-        setMediaChanging(false);
-
         if (startPositionInMills > 0) {
             mp.seekTo(startPositionInMills);
         }
-
-        mp.start();
 
         ComponentName receiver = new ComponentName(context.getPackageName(),
                 RemoteReceiver.class.getName());
@@ -318,71 +321,53 @@ public class AudioServiceBinder
         mMediaSessionCompat.setActive(true);
 
         setAudioMetadata();
-
-        updatePlaybackState(PlayerState.PLAYING);
-
+        
         /* This thread object will send update audio progress message to caller activity every 1 second */
-        Thread updateAudioProgressThread = new Thread() {
+        updateAudioProgressTimer = new Timer();
+        updateAudioProgressTimer.scheduleAtFixedRate(new TimerTask() {
 
-            @Override
-            public void run() {
+                                  @Override
+                                  public void run() {
+                                      if (audioPlayer == null) return;
+                                      if (audioPlayer.isPlaying()) {
 
-                while (isBound) {
+                                          // Create update audio progress message.
+                                          Message updateAudioProgressMsg = new Message();
 
-                    try {
+                                          updateAudioProgressMsg.what = UPDATE_AUDIO_PROGRESS_BAR;
 
-                        if (audioPlayer != null && audioPlayer.isPlaying()) {
+                                          // Send the message to caller activity's update audio progressbar Handler object.
+                                          audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
+                                      }
+                                      // Create update audio duration message.
+                                      Message updateAudioDurationMsg = new Message();
 
-                            // Create update audio progress message.
-                            Message updateAudioProgressMsg = new Message();
+                                      updateAudioDurationMsg.what = UPDATE_AUDIO_DURATION;
 
-                            updateAudioProgressMsg.what = UPDATE_AUDIO_PROGRESS_BAR;
+                                      // Send the message to caller activity's update audio progressbar Handler object.
+                                      audioProgressUpdateHandler.sendMessage(updateAudioDurationMsg);
+                                  }
+                              },
+                0,
+                1000);
+    }
 
-                            // Send the message to caller activity's update audio progressbar Handler object.
-                            audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
+    @Override
+    public void onSeekComplete(MediaPlayer mp) {
+        updatePlaybackState(mp.isPlaying() ? PlayerState.PLAYING : PlayerState.PAUSED);
 
-                            try {
+        // Create update audio duration message.
+        Message updateAudioDurationMsg = new Message();
 
-                                Thread.sleep(1000);
+        updateAudioDurationMsg.what = UPDATE_PLAYER_STATE_TO_SEEK_COMPLETE;
 
-                            } catch (InterruptedException ex) { /* ignore */ }
-
-                        } else {
-
-                            try {
-
-                                Thread.sleep(100);
-
-                            } catch (InterruptedException ex) { /* ignore */ }
-                        }
-
-                        // Create update audio duration message.
-                        Message updateAudioDurationMsg = new Message();
-
-                        updateAudioDurationMsg.what = UPDATE_AUDIO_DURATION;
-
-                        // Send the message to caller activity's update audio progressbar Handler object.
-                        audioProgressUpdateHandler.sendMessage(updateAudioDurationMsg);
-
-                    } catch (Exception e) {
-
-                        Log.e(TAG, "onPrepared:updateAudioProgressThread: ", e);
-                    }
-                }
-            }
-        };
-
-        updateAudioProgressThread.start();
+        // Send the message to caller activity's update audio progressbar Handler object.
+        audioProgressUpdateHandler.sendMessage(updateAudioDurationMsg);
     }
 
     @Override
     public void onCompletion(MediaPlayer mp) {
-
-        if (audioPlayer != null) {
-
-            audioPlayer.pause();
-
-            updatePlaybackState(PlayerState.PAUSED);
+            pauseAudio();
 
             // Create update audio player state message.
             Message updateAudioProgressMsg = new Message();
@@ -391,7 +376,6 @@ public class AudioServiceBinder
 
             // Send the message to caller activity's update audio Handler object.
             audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
-        }
     }
 
     @Override
@@ -503,11 +487,11 @@ public class AudioServiceBinder
         switch (playerState) {
             case PLAYING:
                 capabilities |= PlaybackStateCompat.ACTION_PAUSE
-                        | PlaybackStateCompat.ACTION_STOP;
+                        | PlaybackStateCompat.ACTION_STOP | PlaybackStateCompat.ACTION_SEEK_TO;
                 break;
             case PAUSED:
                 capabilities |= PlaybackStateCompat.ACTION_PLAY
-                        | PlaybackStateCompat.ACTION_STOP;
+                        | PlaybackStateCompat.ACTION_STOP | PlaybackStateCompat.ACTION_SEEK_TO;
                 break;
             case BUFFERING:
                 capabilities |= PlaybackStateCompat.ACTION_PAUSE
@@ -533,6 +517,9 @@ public class AudioServiceBinder
         NotificationCompat.Builder notificationBuilder = PlayerNotificationUtil.from(
                 activity, context, mMediaSessionCompat, mNotificationChannelId);
 
+        notificationBuilder.addAction(R.drawable.ic_back_10, "Skip Backward",
+                PlayerNotificationUtil.getActionIntent(context, KeyEvent.KEYCODE_MEDIA_SKIP_BACKWARD));
+
         if ((capabilities & PlaybackStateCompat.ACTION_PAUSE) != 0) {
             notificationBuilder.addAction(R.drawable.ic_pause, "Pause",
                     PlayerNotificationUtil.getActionIntent(context, KeyEvent.KEYCODE_MEDIA_PAUSE));
@@ -543,11 +530,13 @@ public class AudioServiceBinder
                     PlayerNotificationUtil.getActionIntent(context, KeyEvent.KEYCODE_MEDIA_PLAY));
         }
 
+        notificationBuilder.addAction(R.drawable.ic_skip_10, "Skip Forward",
+                PlayerNotificationUtil.getActionIntent(context, KeyEvent.KEYCODE_MEDIA_SKIP_FORWARD));
+
         NotificationManager notificationManager = (NotificationManager)
                 context.getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (notificationManager != null) {
-
             notificationManager.notify(NOTIFICATION_ID, notificationBuilder.build());
         }
     }

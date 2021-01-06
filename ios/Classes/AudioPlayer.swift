@@ -52,7 +52,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                           if let position = arguments["position"] as? Double {
                             
                             if let isLiveStream = arguments["isLiveStream"] as? Bool {
-                                
                                 setup(title: title, subtitle: subtitle, position: position, url: audioURL, isLiveStream: isLiveStream)
                             }
                           }
@@ -62,6 +61,10 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
           }
           
           result(true)
+      }
+      else if ("resume" == call.method) {
+        play()
+        result(true)
       }
       
       /* pause audio playback */
@@ -145,7 +148,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                     
                     validPlaybackUrl = true
                 
-                    if (audioURL != mediaURL) {
                         
                         mediaURL = audioURL
                         
@@ -161,6 +163,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                         self.audioPlayer.addObserver(self, forKeyPath: #keyPath(AVPlayer.status), options: [.new, .initial], context: nil)
                         self.audioPlayer.addObserver(self, forKeyPath: #keyPath(AVPlayerItem.status), options:[.old, .new, .initial], context: nil)
                         self.audioPlayer.addObserver(self, forKeyPath: #keyPath(AVPlayer.timeControlStatus), options:[.old, .new, .initial], context: nil)
+                        self.audioPlayer.addObserver(self, forKeyPath: #keyPath(AVPlayer.currentItem.duration), options: [.new, .initial], context: nil)
                         
                         let interval = CMTime(seconds: 1.0,
                         preferredTimescale: CMTimeScale(NSEC_PER_SEC))
@@ -174,10 +177,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                         setupNowPlayingInfoPanel(title: title, subtitle: subtitle, isLiveStream: isLiveStream)
                         
                         seekTo(seconds: position / 1000)
-                        
-                    }
-                    
-                    audioPlayer.play()
                 }
             }
         }
@@ -192,9 +191,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         pause()
         
         self.flutterEventSink?(["name":"onComplete"])
-        
-        seekTo(seconds: 0.0)
-        
+                
         updateInfoPanelOnComplete()
     }
     
@@ -244,6 +241,10 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                 // Fallback on earlier versions
             }
         }
+        
+        else if keyPath == #keyPath(AVPlayer.currentItem.duration) {
+            onDurationChange()
+        }
     }
     
     @objc func onAVPlayerNewErrorLogEntry(_ notification: Notification) {
@@ -290,6 +291,29 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
             }
             return .commandFailed
         }
+        
+        commandCenter.skipForwardCommand.addTarget { (event) -> MPRemoteCommandHandlerStatus in
+            var seconds = self.audioPlayer.currentTime().seconds + 10
+            let duration = self.audioPlayer.currentItem?.duration.seconds ?? 0
+            if (seconds > duration) { seconds = duration }
+            self.seekTo(seconds: seconds)
+            return .success
+        }
+        
+        commandCenter.skipBackwardCommand.addTarget { (event) -> MPRemoteCommandHandlerStatus in
+            var seconds = self.audioPlayer.currentTime().seconds - 10
+            if (seconds < 0) { seconds = 0 }
+            self.seekTo(seconds: seconds)
+            return .success
+        }
+        
+        if #available(iOS 9.1, *) {
+            commandCenter.changePlaybackPositionCommand.addTarget { (event) -> MPRemoteCommandHandlerStatus in
+                let positionTime = (event as? MPChangePlaybackPositionCommandEvent)?.positionTime ?? 0
+                self.seekTo(seconds: round(positionTime))
+                return .success
+            }
+        }
     }
     
     private func setupNowPlayingInfoPanel(title:String, subtitle:String, isLiveStream:Bool) {
@@ -321,7 +345,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         onDurationChange()
     }
-    
+        
     private func pause() {
         
         audioPlayer.pause()
@@ -334,9 +358,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     }
     
     private func seekTo(seconds:Double) {
-        
-        updateInfoPanelOnPause()
-        
+                
         let position = self.audioPlayer.currentTime().seconds
         
         audioPlayer.seek(to: CMTime(seconds: seconds, preferredTimescale: CMTimeScale(NSEC_PER_SEC))) { (isCompleted) in
@@ -346,7 +368,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                 self.flutterEventSink?(["name":"onSeek", "position":position, "offset":seconds])
             }
             
-            self.updateInfoPanelOnPlay()
+            self.updateInfoPanelOnTime()
         }
     }
     
@@ -437,8 +459,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     private func updateInfoPanelOnTime() {
         
         self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = CMTimeGetSeconds((self.audioPlayer.currentTime()))
-        
-        self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 1
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
     }

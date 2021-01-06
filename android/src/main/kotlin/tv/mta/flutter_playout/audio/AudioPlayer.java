@@ -175,18 +175,13 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
         String newUrl = (String) args.get("url");
 
-        boolean mediaChanged = true;
-
-        if (this.audioURL != null) {
-
-            mediaChanged = !this.audioURL.equals(newUrl);
-        }
-
         this.audioURL = newUrl;
 
         this.title = (String) args.get("title");
 
         this.subtitle = (String) args.get("subtitle");
+
+        mediaDuration = 0;
 
         try {
 
@@ -196,16 +191,13 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
         if (audioServiceBinder != null) {
 
-            if (mediaChanged) {
 
                 try {
 
                     audioServiceBinder.reset();
 
-                } catch (Exception e) { /* ignore */}
-
-                audioServiceBinder.setMediaChanging(true);
-            }
+                } catch (Exception e) {/* ignore */}
+            audioServiceBinder.cleanPlayerNotification();
 
             audioServiceBinder.setAudioFileUrl(this.audioURL);
 
@@ -218,6 +210,12 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
         } else {
 
             bindAudioService();
+        }
+    }
+
+    private void resume() {
+        if (audioServiceBinder != null) {
+            audioServiceBinder.resumeAudio();
         }
 
         notifyDartOnPlay();
@@ -277,6 +275,23 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
         }
     }
 
+    private void notifyDartOnSeek(int position, int offset) {
+
+        try {
+
+            JSONObject message = new JSONObject();
+            message.put("name", "onSeek");
+            message.put("position", position);
+            message.put("offset", offset);
+
+            eventSink.success(message);
+
+        } catch (Exception e) {
+
+            Log.e(TAG, "notifyDartOnSeek: ", e);
+        }
+    }
+
     private void notifyDartOnComplete() {
 
         try {
@@ -317,11 +332,10 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
             java.util.HashMap<String, Double> args = (java.util.HashMap<String, Double>) arguments;
 
-            Double position = args.get("second");
+            Double second = args.get("second");
 
-            if (audioServiceBinder != null && position != null) {
-
-                audioServiceBinder.seekAudio(position.intValue());
+            if (audioServiceBinder != null && second != null) {
+                audioServiceBinder.seekAudio(second.intValue());
             }
 
         } catch (Exception e) {
@@ -336,8 +350,8 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
             if (audioServiceBinder != null &&
                     audioServiceBinder.getAudioPlayer() != null &&
-                    !audioServiceBinder.isMediaChanging()) {
-
+                    audioServiceBinder.getIsPlayerReady()
+                    ) {
                 int newDuration = audioServiceBinder.getAudioPlayer().getDuration();
 
                 if (newDuration != mediaDuration) {
@@ -393,6 +407,11 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
         switch (call.method) {
             case "play": {
                 play(call.arguments);
+                result.success(true);
+                break;
+            }
+            case "resume": {
+                resume();
                 result.success(true);
                 break;
             }
@@ -453,7 +472,7 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
                 /* The update process message is sent from AudioServiceBinder class's thread object */
                 if (msg.what == service.audioServiceBinder.UPDATE_AUDIO_PROGRESS_BAR) {
-
+                    if (service.audioServiceBinder.getAudioPlayer() == null) return;
                     try {
 
                         int position = service.audioServiceBinder.getCurrentAudioPosition();
@@ -491,9 +510,17 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
                     service.notifyDartOnError(msg.obj.toString());
 
                 } else if (msg.what == service.audioServiceBinder.UPDATE_AUDIO_DURATION) {
+                    if (service.audioServiceBinder.getAudioPlayer() == null) return;
 
                     service.onDuration();
 
+                } else if (msg.what == service.audioServiceBinder.UPDATE_PLAYER_STATE_TO_SEEK_COMPLETE) {
+                    if (service.audioServiceBinder.getAudioPlayer() == null) return;
+
+                    int position = service.audioServiceBinder.getCurrentAudioPosition();
+                    int offset = service.audioServiceBinder.getAudioPlayer().getDuration();
+
+                    service.notifyDartOnSeek(position, offset);
                 }
             }
         }
