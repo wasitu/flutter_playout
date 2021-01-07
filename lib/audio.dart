@@ -75,6 +75,12 @@ class Audio {
     });
   }
 
+  Future<void> setSpeed(double speed) async {
+    return _audioChannel.invokeMethod("setSpeed", <String, dynamic>{
+      "speed": speed,
+    });
+  }
+
   Future<void> dispose() async {
     _instance = null;
     await _audioChannel.invokeMethod("dispose");

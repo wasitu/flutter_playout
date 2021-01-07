@@ -7,6 +7,7 @@ import android.app.NotificationManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.media.MediaPlayer;
+import android.media.PlaybackParams;
 import android.media.session.PlaybackState;
 import android.os.Binder;
 import android.os.Build;
@@ -78,6 +79,8 @@ public class AudioServiceBinder
     private int startPositionInMills = 0;
 
     private int previousPosition = 0;
+
+    private float speed = 1.0F;
 
     // This Handler object is a reference to the caller activity's Handler.
     // In the caller activity's handler, it will update the audio play progress.
@@ -160,13 +163,32 @@ public class AudioServiceBinder
         }
     }
 
+    boolean setSpeed(double speed) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            this.speed = (float) speed;
+            if (audioPlayer != null && audioPlayer.isPlaying()) {
+                PlaybackParams params = audioPlayer.getPlaybackParams();
+                params.setSpeed((float) speed);
+                audioPlayer.setPlaybackParams(params);
+            }
+            return true;
+        }
+        return false;
+    }
+
     void resumeAudio() {
 
         if (audioPlayer != null) {
 
             if (!audioPlayer.isPlaying()) {
 
-                audioPlayer.start();
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    PlaybackParams params = audioPlayer.getPlaybackParams();
+                    params.setSpeed((float) speed);
+                    audioPlayer.setPlaybackParams(params);
+                } else {
+                    audioPlayer.start();
+                }
             }
 
             updatePlaybackState(PlayerState.PLAYING);
@@ -238,7 +260,7 @@ public class AudioServiceBinder
         try {
             if (audioPlayer == null) {
                 audioPlayer = new MediaPlayer();
-
+                speed = 1.0F;
                 if (!TextUtils.isEmpty(getAudioFileUrl())) {
 
                     audioPlayer.setDataSource(getAudioFileUrl());

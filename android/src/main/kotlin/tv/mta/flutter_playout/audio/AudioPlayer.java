@@ -292,6 +292,19 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
         }
     }
 
+    private void notifyDartOnTime(int position, int duration) {
+        if (position <= duration) {
+            try {
+                JSONObject message = new JSONObject();
+                message.put("name", "onTime");
+                message.put("time", position / 1000);
+                eventSink.success(message);
+            } catch (Exception e) {
+                Log.e(TAG, "notifyDartOnTime: ", e);
+            }
+        }
+    }
+
     private void notifyDartOnComplete() {
 
         try {
@@ -342,6 +355,20 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
 
             notifyDartOnError(e.getMessage());
         }
+    }
+
+    private boolean setSpeed(Object arguments) {
+        try {
+            java.util.HashMap<String, Double> args = (java.util.HashMap<String, Double>) arguments;
+            Double speed = args.get("speed");
+
+            if (audioServiceBinder != null && speed != null) {
+                return audioServiceBinder.setSpeed(speed);
+            }
+        } catch (Exception e) {
+            notifyDartOnError(e.getMessage());
+        }
+        return false;
     }
 
     private void onDuration() {
@@ -435,6 +462,11 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
                 result.success(true);
                 break;
             }
+            case "setSpeed": {
+                boolean success = setSpeed(call.arguments);
+                result.success(success);
+                break;
+            }
             default:
                 result.notImplemented();
         }
@@ -473,26 +505,9 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
                 /* The update process message is sent from AudioServiceBinder class's thread object */
                 if (msg.what == service.audioServiceBinder.UPDATE_AUDIO_PROGRESS_BAR) {
                     if (service.audioServiceBinder.getAudioPlayer() == null) return;
-                    try {
-
-                        int position = service.audioServiceBinder.getCurrentAudioPosition();
-
-                        int duration = service.audioServiceBinder.getAudioPlayer().getDuration();
-
-                        if (position <= duration) {
-
-                            JSONObject message = new JSONObject();
-
-                            message.put("name", "onTime");
-
-                            message.put("time",
-                                    service.audioServiceBinder.getCurrentAudioPosition() / 1000);
-
-                            service.eventSink.success(message);
-                        }
-
-                    } catch (Exception e) { /* ignore */ }
-
+                    int position = service.audioServiceBinder.getCurrentAudioPosition();
+                    int duration = service.audioServiceBinder.getAudioPlayer().getDuration();
+                    service.notifyDartOnTime(position, duration);
                 } else if (msg.what == service.audioServiceBinder.UPDATE_PLAYER_STATE_TO_PAUSE) {
 
                     service.notifyDartOnPause();
@@ -502,9 +517,9 @@ public class AudioPlayer implements MethodChannel.MethodCallHandler, EventChanne
                     service.notifyDartOnPlay();
 
                 } else if (msg.what == service.audioServiceBinder.UPDATE_PLAYER_STATE_TO_COMPLETE) {
-
+                    int duration = service.audioServiceBinder.getAudioPlayer().getDuration();
+                    service.notifyDartOnTime(duration, duration);
                     service.notifyDartOnComplete();
-
                 } else if (msg.what == service.audioServiceBinder.UPDATE_PLAYER_STATE_TO_ERROR) {
 
                     service.notifyDartOnError(msg.obj.toString());

@@ -96,6 +96,15 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
           
           result(true)
       }
+      else if ("setSpeed" == call.method) {
+          if let arguments = call.arguments as? NSDictionary {
+              if let speed = arguments["speed"] as? Double {
+                setSpeed(speed: speed)
+              }
+          }
+          
+          result(true)
+      }
         
         /* stop audio playback */
         else if ("dispose" == call.method) {
@@ -125,6 +134,8 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     
     private var mediaURL = ""
     
+    private var speed: Float = 1.0
+    
     private func setup(title:String, subtitle:String, position:Double, url: String?, isLiveStream:Bool) {
 
         do {
@@ -152,6 +163,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                         mediaURL = audioURL
                         
                         audioPlayer = AVPlayer(url: url)
+                    speed = 1.0
                         
                         let center = NotificationCenter.default
                         
@@ -192,7 +204,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         self.flutterEventSink?(["name":"onComplete"])
                 
-        updateInfoPanelOnComplete()
+        updateInfoPanel()
     }
     
     /* Observe If AVPlayerItem.status Changed to Fail */
@@ -276,20 +288,14 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
 
         // Add handler for Play Command
         commandCenter.playCommand.addTarget { event in
-            if self.audioPlayer.rate == 0.0 {
-                self.play()
-                return .success
-            }
-            return .commandFailed
+            self.play()
+            return .success
         }
 
         // Add handler for Pause Command
         commandCenter.pauseCommand.addTarget { event in
-            if self.audioPlayer.rate == 1.0 {
-                self.pause()
-                return .success
-            }
-            return .commandFailed
+            self.pause()
+            return .success
         }
         
         commandCenter.skipForwardCommand.addTarget { (event) -> MPRemoteCommandHandlerStatus in
@@ -337,13 +343,11 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     
     private func play() {
         
-        audioPlayer.play()
+        audioPlayer.rate = speed
         
         self.flutterEventSink?(["name":"onPlay"])
         
-        updateInfoPanelOnPlay()
-        
-        onDurationChange()
+        updateInfoPanel()
     }
         
     private func pause() {
@@ -352,9 +356,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         self.flutterEventSink?(["name":"onPause"])
         
-        updateInfoPanelOnPause()
-        
-        onDurationChange()
+        updateInfoPanel()
     }
     
     private func seekTo(seconds:Double) {
@@ -368,7 +370,15 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                 self.flutterEventSink?(["name":"onSeek", "position":position, "offset":seconds])
             }
             
-            self.updateInfoPanelOnTime()
+            self.updateInfoPanel()
+        }
+    }
+    
+    private func setSpeed(speed: Double) {
+        self.speed = Float(speed)
+        if audioPlayer.rate > 0 {
+            audioPlayer.rate = self.speed
+            updateInfoPanel()
         }
     }
     
@@ -380,9 +390,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         /* reset state */
         self.mediaURL = ""
-        
-        onDurationChange()
-        
+                
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
     }
     
@@ -414,9 +422,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         self.flutterEventSink?(["name":"onTime", "time":self.audioPlayer.currentTime().seconds])
         
-        updateInfoPanelOnTime()
-        
-        onDurationChange()
+        updateInfoPanel()
     }
     
     public func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
@@ -429,36 +435,10 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         return nil
     }
     
-    private func updateInfoPanelOnPause() {
-        
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = CMTimeGetSeconds((self.audioPlayer.currentTime()))
-        
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0
-        
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-    }
-    
-    private func updateInfoPanelOnPlay() {
-        
+    private func updateInfoPanel() {
         self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = CMTimeGetSeconds(((self.audioPlayer.currentTime())))
         
-        self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 1
-        
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
-    }
-    
-    private func updateInfoPanelOnComplete() {
-        
-        nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = 0
-
-        nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = 0
-
-        MPNowPlayingInfoCenter.default().nowPlayingInfo = nowPlayingInfo
-    }
-    
-    private func updateInfoPanelOnTime() {
-        
-        self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = CMTimeGetSeconds((self.audioPlayer.currentTime()))
+        self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = audioPlayer.rate
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
     }
