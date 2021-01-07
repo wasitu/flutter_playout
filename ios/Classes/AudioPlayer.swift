@@ -130,8 +130,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     
     private var nowPlayingInfo = [String : Any]()
     
-    private var mediaDuration = 0.0
-    
     private var mediaURL = ""
     
     private var speed: Float = 1.0
@@ -189,6 +187,8 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                         setupNowPlayingInfoPanel(title: title, subtitle: subtitle, isLiveStream: isLiveStream)
                         
                         seekTo(seconds: position / 1000)
+                    
+                    onDurationChange()
                 }
             }
         }
@@ -256,6 +256,7 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         else if keyPath == #keyPath(AVPlayer.currentItem.duration) {
             onDurationChange()
+            updateInfoPanel()
         }
     }
     
@@ -408,7 +409,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         /* reset state */
         self.mediaURL = ""
-        self.mediaDuration = 0.0
         
         NotificationCenter.default.removeObserver(self)
         
@@ -436,30 +436,18 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
     }
     
     private func updateInfoPanel() {
-        self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = CMTimeGetSeconds(((self.audioPlayer.currentTime())))
-        
+        self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = audioPlayer.currentTime().seconds
+        self.nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = audioPlayer.currentItem?.asset.duration.seconds
         self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = audioPlayer.rate
         
         MPNowPlayingInfoCenter.default().nowPlayingInfo = self.nowPlayingInfo
     }
     
     private func onDurationChange() {
-        
         guard let item = self.audioPlayer.currentItem else { return }
-        
-        let newDuration = item.duration.seconds * 1000
-        
-        if (newDuration.isNaN) {
-            
-            self.mediaDuration = newDuration
-            
-            self.flutterEventSink?(["name":"onDuration", "duration":-1])
-            
-        } else if (newDuration != mediaDuration) {
-            
-            self.mediaDuration = newDuration
-            
-            self.flutterEventSink?(["name":"onDuration", "duration":self.mediaDuration])
+        let duration = item.duration.seconds * 1000
+        if (!duration.isNaN) {
+            self.flutterEventSink?(["name":"onDuration", "duration":duration])
         }
     }
 }

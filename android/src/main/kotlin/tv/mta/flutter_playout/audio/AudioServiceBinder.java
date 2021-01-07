@@ -345,6 +345,7 @@ public class AudioServiceBinder
         setAudioMetadata();
         
         /* This thread object will send update audio progress message to caller activity every 1 second */
+        if (updateAudioProgressTimer != null) updateAudioProgressTimer.cancel();
         updateAudioProgressTimer = new Timer();
         updateAudioProgressTimer.scheduleAtFixedRate(new TimerTask() {
 
