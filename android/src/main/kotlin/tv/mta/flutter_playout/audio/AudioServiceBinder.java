@@ -44,10 +44,6 @@ public class AudioServiceBinder
      */
     private static final String mNotificationChannelId = "NotificationBarController";
     /**
-     * Playback Rate for the MediaPlayer is always 1.0.
-     */
-    private static final float PLAYBACK_RATE = 1.0f;
-    /**
      * The notification id.
      */
     private static final int NOTIFICATION_ID = 0;
@@ -159,7 +155,6 @@ public class AudioServiceBinder
         if (isPlayerReady) {
             previousPosition = audioPlayer.getCurrentPosition();
             audioPlayer.seekTo(second * 1000);
-            updatePlaybackState(PlayerState.PLAYING);
         }
     }
 
@@ -170,6 +165,7 @@ public class AudioServiceBinder
                 PlaybackParams params = audioPlayer.getPlaybackParams();
                 params.setSpeed((float) speed);
                 audioPlayer.setPlaybackParams(params);
+                updatePlaybackState(PlayerState.PLAYING);
             }
             return true;
         }
@@ -343,34 +339,34 @@ public class AudioServiceBinder
         mMediaSessionCompat.setActive(true);
 
         setAudioMetadata();
-        
+
         /* This thread object will send update audio progress message to caller activity every 1 second */
         if (updateAudioProgressTimer != null) updateAudioProgressTimer.cancel();
         updateAudioProgressTimer = new Timer();
-        updateAudioProgressTimer.scheduleAtFixedRate(new TimerTask() {
+        updateAudioProgressTimer.scheduleAtFixedRate(
+                new TimerTask() {
+                    @Override
+                    public void run() {
+                        if (audioPlayer == null) return;
+                        if (audioPlayer.isPlaying()) {
 
-                                  @Override
-                                  public void run() {
-                                      if (audioPlayer == null) return;
-                                      if (audioPlayer.isPlaying()) {
+                            // Create update audio progress message.
+                            Message updateAudioProgressMsg = new Message();
 
-                                          // Create update audio progress message.
-                                          Message updateAudioProgressMsg = new Message();
+                            updateAudioProgressMsg.what = UPDATE_AUDIO_PROGRESS_BAR;
 
-                                          updateAudioProgressMsg.what = UPDATE_AUDIO_PROGRESS_BAR;
+                            // Send the message to caller activity's update audio progressbar Handler object.
+                            audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
+                        }
+                        // Create update audio duration message.
+                        Message updateAudioDurationMsg = new Message();
 
-                                          // Send the message to caller activity's update audio progressbar Handler object.
-                                          audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
-                                      }
-                                      // Create update audio duration message.
-                                      Message updateAudioDurationMsg = new Message();
+                        updateAudioDurationMsg.what = UPDATE_AUDIO_DURATION;
 
-                                      updateAudioDurationMsg.what = UPDATE_AUDIO_DURATION;
-
-                                      // Send the message to caller activity's update audio progressbar Handler object.
-                                      audioProgressUpdateHandler.sendMessage(updateAudioDurationMsg);
-                                  }
-                              },
+                        // Send the message to caller activity's update audio progressbar Handler object.
+                        audioProgressUpdateHandler.sendMessage(updateAudioDurationMsg);
+                    }
+                },
                 0,
                 1000);
     }
@@ -390,15 +386,15 @@ public class AudioServiceBinder
 
     @Override
     public void onCompletion(MediaPlayer mp) {
-            pauseAudio();
+        pauseAudio();
 
-            // Create update audio player state message.
-            Message updateAudioProgressMsg = new Message();
+        // Create update audio player state message.
+        Message updateAudioProgressMsg = new Message();
 
-            updateAudioProgressMsg.what = UPDATE_PLAYER_STATE_TO_COMPLETE;
+        updateAudioProgressMsg.what = UPDATE_PLAYER_STATE_TO_COMPLETE;
 
-            // Send the message to caller activity's update audio Handler object.
-            audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
+        // Send the message to caller activity's update audio Handler object.
+        audioProgressUpdateHandler.sendMessage(updateAudioProgressMsg);
     }
 
     @Override
@@ -495,7 +491,7 @@ public class AudioServiceBinder
 
         if (audioPlayer != null) {
             newPlaybackState.setState(playbackStateCompat,
-                    (long) audioPlayer.getCurrentPosition(), PLAYBACK_RATE);
+                    (long) audioPlayer.getCurrentPosition(), speed);
         }
 
         mMediaSessionCompat.setPlaybackState(newPlaybackState.build());
