@@ -144,20 +144,10 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
         
         audioPlayer.pause()
         
-        var validPlaybackUrl = false
-        
         if let audioURL = url {
             
             if let url = URL(string: audioURL) {
-            
-                /* Create the asset to play */
-                let asset = AVAsset(url: url)
-                
-                if (asset.isPlayable) {
-                    
-                    validPlaybackUrl = true
-                
-                        
+                                    
                         mediaURL = audioURL
                         
                         audioPlayer = AVPlayer(url: url)
@@ -191,11 +181,6 @@ class AudioPlayer: NSObject, FlutterPlugin, FlutterStreamHandler {
                     onDurationChange()
                 }
             }
-        }
-        
-        if (!validPlaybackUrl) {
-            pause()
-        }
     }
     
     @objc func onComplete(_ notification: Notification) {
